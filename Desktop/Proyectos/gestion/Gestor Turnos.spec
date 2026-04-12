@@ -1,10 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 
 block_cipher = None
 
 a = Analysis(
     ['generador_turnos.py'],
-    pathex=['/Users/juanbenages/Desktop/Proyectos/gestion'],
+    pathex=[os.path.dirname(os.path.abspath(SPEC))],
     binaries=[],
     datas=[],
     hiddenimports=[

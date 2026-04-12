@@ -1,4 +1,7 @@
 import calendar
+import os
+import subprocess
+import sys
 import pandas as pd
 from datetime import datetime, timedelta
 import tkinter as tk
@@ -7,11 +10,18 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 
+# -- Paleta de colores --
+COLOR_BTN_BG  = "#007AFF"
+COLOR_BTN_FG  = "#FFFFFF"
+COLOR_HEADER  = "6C4C87"
+COLOR_ROW_ODD = "C2B4CA"
+COLOR_ROW_EVN = "DCD3E1"
+
+
 class AppTurnosNativa:
     def __init__(self, root):
         self.root = root
         self.root.title("Gestor de Limpieza - Horarios Reales")
-        self.root.geometry("500x400")
         self.root.resizable(False, False)
 
         tk.Label(root, text="Configuración de Calendario", font=('Arial', 14, 'bold')).pack(pady=15)
@@ -27,7 +37,7 @@ class AppTurnosNativa:
 
         # --- FECHA DE INICIO ---
         frame_ini = tk.LabelFrame(root, text=" Fecha de Inicio ", padx=10, pady=10)
-        frame_ini.pack(pady=10, fill="x", padx=20)
+        frame_ini.pack(pady=8, fill="x", padx=20)
 
         self.d_ini = ttk.Combobox(frame_ini, values=[str(i).zfill(2) for i in range(1, 32)], width=3, state="readonly")
         self.m_ini = ttk.Combobox(frame_ini, values=[str(i).zfill(2) for i in range(1, 13)], width=3, state="readonly")
@@ -45,7 +55,7 @@ class AppTurnosNativa:
 
         # --- FECHA DE FIN ---
         frame_fin = tk.LabelFrame(root, text=" Fecha de Fin ", padx=10, pady=10)
-        frame_fin.pack(pady=10, fill="x", padx=20)
+        frame_fin.pack(pady=8, fill="x", padx=20)
 
         self.d_fin = ttk.Combobox(frame_fin, values=[str(i).zfill(2) for i in range(1, 32)], width=3, state="readonly")
         self.m_fin = ttk.Combobox(frame_fin, values=[str(i).zfill(2) for i in range(1, 13)], width=3, state="readonly")
@@ -61,9 +71,44 @@ class AppTurnosNativa:
         tk.Label(frame_fin, text="/").pack(side="left")
         self.a_fin.pack(side="left", padx=5)
 
+        # --- PREVIEW DE SEMANAS ---
+        self._preview_var = tk.StringVar(value="")
+        tk.Label(root, textvariable=self._preview_var,
+                 font=('Arial', 10), fg="#555555").pack(pady=4)
+
         # --- BOTÓN ---
-        btn = tk.Button(root, text="Generar y Guardar Excel", command=self.procesar, bg="#007AFF", fg="black", padx=15, pady=5)
-        btn.pack(pady=20)
+        self.btn = tk.Button(
+            root, text="Generar y Guardar Excel", command=self.procesar,
+            bg=COLOR_BTN_BG, fg=COLOR_BTN_FG, padx=15, pady=6,
+            font=('Arial', 12, 'bold'), relief="flat", cursor="hand2"
+        )
+        self.btn.pack(pady=15)
+
+        # Actualizar preview cuando cambien las fechas
+        for widget in (self.d_ini, self.m_ini, self.a_ini, self.d_fin, self.m_fin, self.a_fin):
+            widget.bind("<<ComboboxSelected>>", lambda _: self._actualizar_preview())
+
+        self._actualizar_preview()
+        self._centrar_ventana(500, 430)
+
+    def _centrar_ventana(self, ancho, alto):
+        self.root.update_idletasks()
+        x = (self.root.winfo_screenwidth()  - ancho) // 2
+        y = (self.root.winfo_screenheight() - alto)  // 2
+        self.root.geometry(f"{ancho}x{alto}+{x}+{y}")
+
+    def _actualizar_preview(self):
+        inicio = self.obtener_fecha(self.d_ini.get(), self.m_ini.get(), self.a_ini.get())
+        fin    = self.obtener_fecha(self.d_fin.get(), self.m_fin.get(), self.a_fin.get())
+        if inicio and fin and fin > inicio:
+            curr = inicio - timedelta(days=inicio.weekday())
+            n = 0
+            while curr <= fin:
+                n += 1
+                curr += timedelta(days=7)
+            self._preview_var.set(f"{n} semana{'s' if n != 1 else ''} a generar")
+        else:
+            self._preview_var.set("Comprueba las fechas")
 
     def obtener_fecha(self, d, m, a):
         try:
@@ -185,9 +230,9 @@ class AppTurnosNativa:
 
             workbook = writer.book
 
-            fill_header = PatternFill(start_color="6C4C87", end_color="6C4C87", fill_type="solid")
-            fill_odd    = PatternFill(start_color="C2B4CA", end_color="C2B4CA", fill_type="solid")
-            fill_even   = PatternFill(start_color="DCD3E1", end_color="DCD3E1", fill_type="solid")
+            fill_header = PatternFill(start_color=COLOR_HEADER,  end_color=COLOR_HEADER,  fill_type="solid")
+            fill_odd    = PatternFill(start_color=COLOR_ROW_ODD, end_color=COLOR_ROW_ODD, fill_type="solid")
+            fill_even   = PatternFill(start_color=COLOR_ROW_EVN, end_color=COLOR_ROW_EVN, fill_type="solid")
 
             font_header = Font(color="FFFFFF", bold=True,  size=12)
             font_normal = Font(color="000000", bold=False, size=12)
@@ -247,14 +292,31 @@ class AppTurnosNativa:
             filetypes=[("Excel", "*.xlsx")]
         )
 
-        if ruta:
-            try:
-                df_c = self.generar_comunes(semanas)
-                df_j = self.generar_juan(semanas)
-                self.aplicar_estilos_excel(ruta, df_c, df_j)
-                messagebox.showinfo("Éxito", "El Excel se ha generado correctamente.")
-            except Exception as e:
-                messagebox.showerror("Error", f"No se pudo guardar: {e}")
+        if not ruta:
+            return
+
+        self.btn.config(state="disabled", text="Generando...")
+        self.root.config(cursor="watch")
+        self.root.update()
+
+        try:
+            df_c = self.generar_comunes(semanas)
+            df_j = self.generar_juan(semanas)
+            self.aplicar_estilos_excel(ruta, df_c, df_j)
+
+            if messagebox.askyesno("Listo", "El Excel se ha generado correctamente.\n¿Deseas abrirlo ahora?"):
+                if sys.platform == "darwin":
+                    subprocess.call(["open", ruta])
+                elif sys.platform == "win32":
+                    os.startfile(ruta)
+                else:
+                    subprocess.call(["xdg-open", ruta])
+
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo guardar: {e}")
+        finally:
+            self.btn.config(state="normal", text="Generar y Guardar Excel")
+            self.root.config(cursor="")
 
 
 if __name__ == "__main__":
