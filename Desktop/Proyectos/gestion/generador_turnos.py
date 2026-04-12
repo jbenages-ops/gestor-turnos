@@ -118,15 +118,15 @@ class AppTurnosNativa:
 
     def generar_juan(self, semanas):
         estancias = ["Hab. Juan", "Hab. AP", "Baño Juan"]
-        staff = ["Lina", "Eva", "Guillem", "Valentina", "Miguel"]
+        staff = ["Lina", "Dora", "Pablo", "Valentina", "Miguel"]
 
-        # Días disponibles por persona (domingos excluidos, Guillem solo sábado)
+        # Días disponibles por persona (domingos excluidos, Pablo solo sábado)
         dias_disponibles = {
             "Lina":      ["Lunes"],
-            "Eva":       ["Miércoles", "Jueves", "Viernes"],
+            "Dora":       ["Miércoles", "Jueves", "Viernes"],
             "Valentina": ["Martes", "Miércoles", "Jueves", "Viernes"],
             "Miguel":    ["Lunes", "Martes"],
-            "Guillem":   ["Sábado"],
+            "Pablo":   ["Sábado"],
         }
 
         # Rotación: 5 personas con avance de 3 por semana.
