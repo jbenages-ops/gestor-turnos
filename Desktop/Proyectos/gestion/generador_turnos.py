@@ -120,13 +120,13 @@ class AppTurnosNativa:
         estancias = ["Hab. Juan", "Hab. AP", "Baño Juan"]
         staff = ["Lina", "Dora", "Pablo", "Valentina", "Miguel"]
 
-        # Días disponibles por persona (domingos excluidos, Pablo solo sábado)
+        # Días disponibles por persona (domingos excluidos, Pablo solo martes)
         dias_disponibles = {
-            "Lina":      ["Lunes"],
-            "Dora":       ["Miércoles", "Jueves", "Viernes"],
+            "Lina":      ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+            "Dora":      ["Miércoles", "Jueves", "Viernes", "Sábado"],
             "Valentina": ["Martes", "Miércoles", "Jueves", "Viernes"],
             "Miguel":    ["Lunes", "Martes"],
-            "Pablo":   ["Sábado"],
+            "Pablo":     ["Martes"],
         }
 
         # Rotación: 5 personas con avance de 3 por semana.
