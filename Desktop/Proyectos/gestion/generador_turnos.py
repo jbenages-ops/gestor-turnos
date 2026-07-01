@@ -218,7 +218,7 @@ class AppTurnosNativa:
             return None
 
     # ------------------------------------------------------------------ #
-    #  LÓGICA DE TURNOS (sin cambios)                                      #
+    #  LÓGICA DE TURNOS                                                    #
     # ------------------------------------------------------------------ #
 
     def generar_juan(self, semanas):
@@ -232,11 +232,13 @@ class AppTurnosNativa:
             "Miguel":    ["Lunes", "Martes"],
             "Guillem":   ["Sábado"],
         }
+        dias_semana = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
 
         rows = []
         idx = 0
         idx_comunes = 0
-        miguel_dia_idx = 0
+        # Puntero de rotación por persona para no repetir siempre su primer día disponible.
+        rotacion_dia = {persona: 0 for persona in staff}
 
         for i, (f_ini, f_fin) in enumerate(semanas):
             row = {
@@ -245,6 +247,19 @@ class AppTurnosNativa:
                 "Jueves":    "-", "Viernes":   "-", "Sábado":    "-",
             }
 
+            # Días ya usados esta semana por cada persona, compartido entre
+            # el reparto de estancias y el de tareas comunes para no
+            # apilar dos tareas de la misma persona en un mismo día.
+            personas_por_dia = {d: set() for d in dias_semana}
+
+            def _asignar(persona, tarea, dia):
+                etiqueta = f"{tarea} ({persona})"
+                if row[dia] == "-":
+                    row[dia] = etiqueta
+                else:
+                    row[dia] += f"\n| {etiqueta}"
+                personas_por_dia[dia].add(persona)
+
             p1 = staff[idx % 5]
             p2 = staff[(idx + 1) % 5]
             p3 = staff[(idx + 2) % 5]
@@ -252,26 +267,22 @@ class AppTurnosNativa:
 
             asignaciones = [(p1, estancias[0]), (p2, estancias[1]), (p3, estancias[2])]
 
-            dias_ocupados = set()
             for persona, tarea in asignaciones:
-                if persona == "Miguel":
-                    dias_p = ["Lunes", "Martes"] if miguel_dia_idx % 2 == 0 else ["Martes", "Lunes"]
-                    miguel_dia_idx += 1
-                else:
-                    dias_p = dias_disponibles[persona]
+                dias_p = dias_disponibles[persona]
+                n = len(dias_p)
+                inicio_rot = rotacion_dia[persona]
 
-                dia_elegido = dias_p[0]
-                for d in dias_p:
-                    if d not in dias_ocupados:
-                        dia_elegido = d
+                dia_elegido = None
+                for offset in range(n):
+                    candidato_dia = dias_p[(inicio_rot + offset) % n]
+                    if not personas_por_dia[candidato_dia]:
+                        dia_elegido = candidato_dia
                         break
-                dias_ocupados.add(dia_elegido)
+                if dia_elegido is None:
+                    dia_elegido = dias_p[inicio_rot % n]
 
-                etiqueta = f"{tarea} ({persona})"
-                if row[dia_elegido] == "-":
-                    row[dia_elegido] = etiqueta
-                else:
-                    row[dia_elegido] += f"\n| {etiqueta}"
+                rotacion_dia[persona] = (dias_p.index(dia_elegido) + 1) % n
+                _asignar(persona, tarea, dia_elegido)
 
             juan_comunes_tareas = {
                 0: [("Miércoles", "Entrada")],
@@ -280,16 +291,27 @@ class AppTurnosNativa:
             }[i % 3]
 
             for dia, tarea in juan_comunes_tareas:
+                candidato_libre = candidato_ocupado = None
+                offset_libre = offset_ocupado = None
+
                 for offset in range(len(staff)):
                     candidato = staff[(idx_comunes + offset) % len(staff)]
-                    if dia in dias_disponibles[candidato]:
-                        etiqueta = f"{tarea} ({candidato})"
-                        if row[dia] == "-":
-                            row[dia] = etiqueta
-                        else:
-                            row[dia] += f"\n| {etiqueta}"
-                        idx_comunes = (idx_comunes + offset + 1) % len(staff)
+                    if dia not in dias_disponibles[candidato]:
+                        continue
+                    if candidato not in personas_por_dia[dia]:
+                        candidato_libre, offset_libre = candidato, offset
                         break
+                    elif candidato_ocupado is None:
+                        candidato_ocupado, offset_ocupado = candidato, offset
+
+                if candidato_libre is not None:
+                    candidato, offset = candidato_libre, offset_libre
+                else:
+                    candidato, offset = candidato_ocupado, offset_ocupado
+
+                if candidato is not None:
+                    _asignar(candidato, tarea, dia)
+                    idx_comunes = (idx_comunes + offset + 1) % len(staff)
 
             rows.append(row)
 
