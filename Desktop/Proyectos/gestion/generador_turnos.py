@@ -2,6 +2,7 @@ import calendar
 import os
 import subprocess
 import sys
+import traceback
 import pandas as pd
 from datetime import datetime, timedelta
 import tkinter as tk
@@ -311,12 +312,16 @@ class AppTurnosNativa:
 
                 if candidato_libre is not None:
                     candidato, offset = candidato_libre, offset_libre
-                else:
+                elif candidato_ocupado is not None:
                     candidato, offset = candidato_ocupado, offset_ocupado
+                else:
+                    raise ValueError(
+                        f"Nadie del equipo está disponible el {dia} para la tarea "
+                        f"'{tarea}'. Revisa 'dias_disponibles'."
+                    )
 
-                if candidato is not None:
-                    _asignar(candidato, tarea, dia)
-                    idx_comunes = (idx_comunes + offset + 1) % len(staff)
+                _asignar(candidato, tarea, dia)
+                idx_comunes = (idx_comunes + offset + 1) % len(staff)
 
             rows.append(row)
 
@@ -336,7 +341,9 @@ class AppTurnosNativa:
                 "Lunes":     f"Salón ({p_A})",
                 "Martes":    f"Cocina ({p_A})",
                 "Miércoles": f"Entrada ({p_C})",
+                "Jueves":    f"Salón ({p_C})",
                 "Viernes":   f"Cocina ({p_B})",
+                "Sábado":    f"Entrada ({p_B})",
             }
             rows.append(row)
 
@@ -428,6 +435,7 @@ class AppTurnosNativa:
                     subprocess.call(["xdg-open", ruta])
 
         except Exception as e:
+            traceback.print_exc()
             messagebox.showerror("Error", f"No se pudo guardar: {e}")
         finally:
             self.btn.config(state="normal", text="Generar y Guardar Excel")
