@@ -168,7 +168,8 @@ class HojaEncargoApp:
         self.frame_persona_fisica = tk.Frame(card, bg=BG_CARD)
         self.frame_persona_fisica.pack(fill="x")
         for key, label in [("Nombre y apellidos", "Nombre y apellidos"),
-                             ("con NIF n_2", "NIF")]:
+                             ("con NIF n_2", "NIF"),
+                             ("domicilio", "Domiciliado en")]:
             self.vars[key] = tk.StringVar()
             _entry_row(self.frame_persona_fisica, label, self.vars[key])
 
@@ -185,7 +186,7 @@ class HojaEncargoApp:
         outer, card = _card(body, "4. INMUEBLE")
         outer.pack(fill="x", pady=(0, 10))
         for key, label in [("VÍA", "Tipo de vía (CL, AV…)"),
-                             ("domicilio", "Dirección completa (calle y nº)"),
+                             ("nombre vía", "Nombre de la vía"),
                              ("nkm", "Nº / Km"),
                              ("bloque", "Bloque"),
                              ("escalera", "Escalera"),
@@ -311,12 +312,15 @@ class HojaEncargoApp:
 
         self.vars["Nombre y apellidos"].set(d["cliente_nombre"])
         self.vars["con NIF n_2"].set(d["cliente_nif"])
+        # El domicilio del cliente no viene en el .xml; el caso habitual es que
+        # coincida con el inmueble certificado.
+        self.vars["domicilio"].set(d["edificio_direccion"])
         self.es_empresa_var.set(False)
         self._toggle_empresa()
 
-        via, _nombre_via, nkm = split_direccion(d["edificio_direccion"])
+        via, nombre_via, nkm = split_direccion(d["edificio_direccion"])
         self.vars["VÍA"].set(via)
-        self.vars["domicilio"].set(d["edificio_direccion"])
+        self.vars["nombre vía"].set(nombre_via)
         self.vars["nkm"].set(nkm)
         self.vars["localidad"].set(d["edificio_municipio"])
         self.vars["provincia"].set(d["edificio_provincia"].upper())
@@ -351,6 +355,7 @@ class HojaEncargoApp:
         if self.es_empresa_var.get():
             values["Nombre y apellidos"] = ""
             values["con NIF n_2"] = ""
+            values["domicilio"] = ""
         else:
             values["Razón social"] = ""
             values["con NIF n_3"] = ""
