@@ -241,6 +241,7 @@ class AppTurnosNativa:
         dias_semana = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
 
         rows = []
+        ocupados_por_semana = []
         idx = 0
         idx_comunes = 0
         # Puntero de rotación por persona para no repetir siempre su primer día disponible.
@@ -323,28 +324,51 @@ class AppTurnosNativa:
                 _asignar(candidato, tarea, dia)
                 idx_comunes = (idx_comunes + offset + 1) % len(staff)
 
+            ocupados_por_semana.append(personas_por_dia)
             rows.append(row)
 
-        return pd.DataFrame(rows)
+        return pd.DataFrame(rows), ocupados_por_semana
 
-    def generar_comunes(self, semanas):
+    def generar_comunes(self, semanas, ocupados_juan=None):
         staff = ["Lina", "Angie", "Juan"]
+        ocupados_juan = ocupados_juan or [{}] * len(semanas)
+
+        # Cada bloque es (día 1, tarea 1, día 2, tarea 2): la persona que
+        # cubre el bloque hace ambas tareas, en esos dos días fijos.
+        bloques = [
+            ("Lunes",     "Salón",   "Martes",  "Cocina"),
+            ("Miércoles", "Entrada", "Jueves",  "Salón"),
+            ("Viernes",   "Cocina",  "Sábado",  "Entrada"),
+        ]
+
+        def _ocupado(persona, ocupado_semana, d1, d2):
+            return persona in ocupado_semana.get(d1, ()) or persona in ocupado_semana.get(d2, ())
+
         rows = []
-
         for i, (f_ini, f_fin) in enumerate(semanas):
-            p_A = staff[i % 3]
-            p_B = staff[(i + 1) % 3]
-            p_C = staff[(i + 2) % 3]
+            personas = [staff[i % 3], staff[(i + 1) % 3], staff[(i + 2) % 3]]
+            ocupado_semana = ocupados_juan[i] if i < len(ocupados_juan) else {}
 
-            row = {
-                "Semana":    f"{f_ini.strftime('%d/%m')} -\n{f_fin.strftime('%d/%m')}",
-                "Lunes":     f"Salón ({p_A})",
-                "Martes":    f"Cocina ({p_A})",
-                "Miércoles": f"Entrada ({p_C})",
-                "Jueves":    f"Salón ({p_C})",
-                "Viernes":   f"Cocina ({p_B})",
-                "Sábado":    f"Entrada ({p_B})",
-            }
+            # Si a alguien ya le toca una tarea de "Zonas de Juan" un día de
+            # su bloque (p.ej. Lina, que está en ambos equipos), se
+            # intercambia su bloque con el de otra persona libre esos días.
+            for b_idx, (d1, _, d2, _) in enumerate(bloques):
+                if not _ocupado(personas[b_idx], ocupado_semana, d1, d2):
+                    continue
+                for j in range(len(personas)):
+                    if j == b_idx:
+                        continue
+                    dj1, _, dj2, _ = bloques[j]
+                    if (not _ocupado(personas[j], ocupado_semana, d1, d2)
+                            and not _ocupado(personas[b_idx], ocupado_semana, dj1, dj2)):
+                        personas[b_idx], personas[j] = personas[j], personas[b_idx]
+                        break
+
+            row = {"Semana": f"{f_ini.strftime('%d/%m')} -\n{f_fin.strftime('%d/%m')}"}
+            for b_idx, (d1, t1, d2, t2) in enumerate(bloques):
+                persona = personas[b_idx]
+                row[d1] = f"{t1} ({persona})"
+                row[d2] = f"{t2} ({persona})"
             rows.append(row)
 
         return pd.DataFrame(rows)
@@ -422,8 +446,8 @@ class AppTurnosNativa:
         self.root.update()
 
         try:
-            df_c = self.generar_comunes(semanas)
-            df_j = self.generar_juan(semanas)
+            df_j, ocupados_juan = self.generar_juan(semanas)
+            df_c = self.generar_comunes(semanas, ocupados_juan)
             self.aplicar_estilos_excel(ruta, df_c, df_j)
 
             if messagebox.askyesno("Listo", "El Excel se ha generado correctamente.\n¿Deseas abrirlo ahora?"):
