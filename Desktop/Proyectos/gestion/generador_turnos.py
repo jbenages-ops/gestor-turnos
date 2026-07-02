@@ -28,6 +28,40 @@ COLOR_HEADER_XL = "6C4C87"
 COLOR_ROW_ODD   = "C2B4CA"
 COLOR_ROW_EVN   = "DCD3E1"
 
+# ---------------------------------------------------------------------- #
+#  CONFIGURACIÓN DEL EQUIPO Y TAREAS                                      #
+#  (único sitio a editar si cambia el personal o su disponibilidad)       #
+# ---------------------------------------------------------------------- #
+
+DIAS_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
+
+# Zonas de Juan
+ESTANCIAS_JUAN = ["Hab. Juan", "Hab. AP", "Baño Juan"]
+STAFF_JUAN = ["Lina", "Eva", "Guillem", "Valentina", "Miguel"]
+DIAS_DISPONIBLES = {
+    "Lina":      ["Lunes"],
+    "Eva":       ["Miércoles", "Jueves", "Viernes"],
+    "Valentina": ["Martes", "Miércoles", "Jueves", "Viernes"],
+    "Miguel":    ["Lunes", "Martes"],
+    "Guillem":   ["Sábado"],
+}
+# Tareas comunes dentro de Zonas de Juan, rotando en ciclos de 3 semanas.
+TAREAS_COMUNES_JUAN = {
+    0: [("Miércoles", "Entrada")],
+    1: [("Viernes",   "Cocina")],
+    2: [("Lunes",     "Salón"), ("Martes", "Cocina")],
+}
+
+# Zonas Comunes
+STAFF_COMUNES = ["Lina", "Angie", "Juan"]
+# Cada bloque es (día 1, tarea 1, día 2, tarea 2): la persona que cubre el
+# bloque hace ambas tareas, en esos dos días fijos.
+BLOQUES_COMUNES = [
+    ("Lunes",     "Salón",   "Martes",  "Cocina"),
+    ("Miércoles", "Entrada", "Jueves",  "Salón"),
+    ("Viernes",   "Cocina",  "Sábado",  "Entrada"),
+]
+
 
 def _card(parent, title=""):
     """Frame tipo tarjeta con borde sutil y esquinas simuladas."""
@@ -159,12 +193,12 @@ class AppTurnosNativa:
         )
         self.btn.pack(fill="x")
 
-        # Bind para preview
+        # Bind: ajustar días válidos del mes y refrescar preview
         for widget in (self.d_ini, self.m_ini, self.a_ini,
                         self.d_fin, self.m_fin, self.a_fin):
-            widget.bind("<<ComboboxSelected>>", lambda _: self._actualizar_preview())
+            widget.bind("<<ComboboxSelected>>", lambda _: self._on_fecha_cambiada())
 
-        self._actualizar_preview()
+        self._on_fecha_cambiada()
 
     def _date_row(self, parent, day, month, year):
         """Fila compacta DD / MM / AAAA con estilo coherente."""
@@ -199,6 +233,21 @@ class AppTurnosNativa:
         y = (self.root.winfo_screenheight() - alto)  // 2
         self.root.geometry(f"{ancho}x{alto}+{x}+{y}")
 
+    def _on_fecha_cambiada(self):
+        self._ajustar_dias_del_mes(self.d_ini, self.m_ini, self.a_ini)
+        self._ajustar_dias_del_mes(self.d_fin, self.m_fin, self.a_fin)
+        self._actualizar_preview()
+
+    def _ajustar_dias_del_mes(self, combo_d, combo_m, combo_a):
+        """Limita el combo de día a los días reales del mes/año elegidos."""
+        try:
+            ultimo = calendar.monthrange(int(combo_a.get()), int(combo_m.get()))[1]
+        except ValueError:
+            return
+        combo_d["values"] = [str(i).zfill(2) for i in range(1, ultimo + 1)]
+        if int(combo_d.get()) > ultimo:
+            combo_d.set(str(ultimo).zfill(2))
+
     def _actualizar_preview(self):
         inicio = self.obtener_fecha(self.d_ini.get(), self.m_ini.get(), self.a_ini.get())
         fin    = self.obtener_fecha(self.d_fin.get(), self.m_fin.get(), self.a_fin.get())
@@ -228,17 +277,9 @@ class AppTurnosNativa:
     # ------------------------------------------------------------------ #
 
     def generar_juan(self, semanas):
-        estancias = ["Hab. Juan", "Hab. AP", "Baño Juan"]
-        staff = ["Lina", "Eva", "Guillem", "Valentina", "Miguel"]
-
-        dias_disponibles = {
-            "Lina":      ["Lunes"],
-            "Eva":       ["Miércoles", "Jueves", "Viernes"],
-            "Valentina": ["Martes", "Miércoles", "Jueves", "Viernes"],
-            "Miguel":    ["Lunes", "Martes"],
-            "Guillem":   ["Sábado"],
-        }
-        dias_semana = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
+        estancias = ESTANCIAS_JUAN
+        staff = STAFF_JUAN
+        dias_disponibles = DIAS_DISPONIBLES
 
         rows = []
         ocupados_por_semana = []
@@ -248,16 +289,13 @@ class AppTurnosNativa:
         rotacion_dia = {persona: 0 for persona in staff}
 
         for i, (f_ini, f_fin) in enumerate(semanas):
-            row = {
-                "Semana":    f"{f_ini.strftime('%d/%m')} -\n{f_fin.strftime('%d/%m')}",
-                "Lunes":     "-", "Martes":    "-", "Miércoles": "-",
-                "Jueves":    "-", "Viernes":   "-", "Sábado":    "-",
-            }
+            row = {"Semana": f"{f_ini.strftime('%d/%m')} -\n{f_fin.strftime('%d/%m')}"}
+            row.update({d: "-" for d in DIAS_SEMANA})
 
             # Días ya usados esta semana por cada persona, compartido entre
             # el reparto de estancias y el de tareas comunes para no
             # apilar dos tareas de la misma persona en un mismo día.
-            personas_por_dia = {d: set() for d in dias_semana}
+            personas_por_dia = {d: set() for d in DIAS_SEMANA}
 
             def _asignar(persona, tarea, dia):
                 etiqueta = f"{tarea} ({persona})"
@@ -267,9 +305,10 @@ class AppTurnosNativa:
                     row[dia] += f"\n| {etiqueta}"
                 personas_por_dia[dia].add(persona)
 
-            p1 = staff[idx % 5]
-            p2 = staff[(idx + 1) % 5]
-            p3 = staff[(idx + 2) % 5]
+            n_staff = len(staff)
+            p1 = staff[idx % n_staff]
+            p2 = staff[(idx + 1) % n_staff]
+            p3 = staff[(idx + 2) % n_staff]
             idx += 3
 
             asignaciones = [(p1, estancias[0]), (p2, estancias[1]), (p3, estancias[2])]
@@ -291,11 +330,7 @@ class AppTurnosNativa:
                 rotacion_dia[persona] = (dias_p.index(dia_elegido) + 1) % n
                 _asignar(persona, tarea, dia_elegido)
 
-            juan_comunes_tareas = {
-                0: [("Miércoles", "Entrada")],
-                1: [("Viernes",   "Cocina")],
-                2: [("Lunes",     "Salón"), ("Martes", "Cocina")],
-            }[i % 3]
+            juan_comunes_tareas = TAREAS_COMUNES_JUAN[i % len(TAREAS_COMUNES_JUAN)]
 
             for dia, tarea in juan_comunes_tareas:
                 candidato_libre = candidato_ocupado = None
@@ -330,23 +365,17 @@ class AppTurnosNativa:
         return pd.DataFrame(rows), ocupados_por_semana
 
     def generar_comunes(self, semanas, ocupados_juan=None):
-        staff = ["Lina", "Angie", "Juan"]
+        staff = STAFF_COMUNES
+        bloques = BLOQUES_COMUNES
         ocupados_juan = ocupados_juan or [{}] * len(semanas)
-
-        # Cada bloque es (día 1, tarea 1, día 2, tarea 2): la persona que
-        # cubre el bloque hace ambas tareas, en esos dos días fijos.
-        bloques = [
-            ("Lunes",     "Salón",   "Martes",  "Cocina"),
-            ("Miércoles", "Entrada", "Jueves",  "Salón"),
-            ("Viernes",   "Cocina",  "Sábado",  "Entrada"),
-        ]
 
         def _ocupado(persona, ocupado_semana, d1, d2):
             return persona in ocupado_semana.get(d1, ()) or persona in ocupado_semana.get(d2, ())
 
         rows = []
+        n_staff = len(staff)
         for i, (f_ini, f_fin) in enumerate(semanas):
-            personas = [staff[i % 3], staff[(i + 1) % 3], staff[(i + 2) % 3]]
+            personas = [staff[(i + k) % n_staff] for k in range(len(bloques))]
             ocupado_semana = ocupados_juan[i] if i < len(ocupados_juan) else {}
 
             # Si a alguien ya le toca una tarea de "Zonas de Juan" un día de
@@ -394,12 +423,18 @@ class AppTurnosNativa:
 
             for sheet_name in ['Zonas Comunes', 'Zonas de Juan']:
                 ws = workbook[sheet_name]
+                ws.freeze_panes = "B2"
 
                 for col_idx in range(1, ws.max_column + 1):
                     ws.column_dimensions[get_column_letter(col_idx)].width = 20
 
                 for row_idx, row in enumerate(ws.iter_rows()):
-                    ws.row_dimensions[row[0].row].height = 45
+                    # Alto según la celda con más líneas apiladas de la fila.
+                    max_lineas = max(
+                        str(cell.value).count("\n") + 1 if cell.value else 1
+                        for cell in row
+                    )
+                    ws.row_dimensions[row[0].row].height = max(45, 22 * max_lineas + 8)
 
                     for cell in row:
                         cell.alignment = align_center
