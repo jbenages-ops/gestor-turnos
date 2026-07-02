@@ -21,7 +21,7 @@ except ImportError:
             return lambda *args, **kwargs: None
 
     tk = types.ModuleType("tkinter")
-    for nombre in ("Frame", "Label", "Button", "Tk", "StringVar"):
+    for nombre in ("Frame", "Label", "Button", "Canvas", "Tk", "StringVar"):
         setattr(tk, nombre, _DummyWidget)
 
     ttk = types.ModuleType("tkinter.ttk")

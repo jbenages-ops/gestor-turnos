@@ -11,17 +11,21 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 
-# -- Paleta de colores --
-BG_APP        = "#F2F2F7"   # fondo general (estilo macOS)
+# -- Paleta de colores (identidad morada, a juego con el icono y el Excel) --
+BG_APP        = "#F4F2F8"   # fondo general, lavanda muy claro
 BG_CARD       = "#FFFFFF"   # fondo de tarjetas
-BG_HEADER     = "#1C1C1E"   # barra de título
+BG_HEADER     = "#3B2B4F"   # barra de título, morado oscuro
 FG_HEADER     = "#FFFFFF"
-FG_TITLE      = "#1C1C1E"
+FG_HEADER_SUB = "#C8B9DC"   # subtítulo de la cabecera
+FG_TITLE      = "#241A31"
 FG_LABEL      = "#3A3A3C"
-FG_MUTED      = "#8E8E93"
-COLOR_ACCENT  = "#007AFF"
-COLOR_HOVER   = "#0062CC"
-COLOR_BORDER  = "#D1D1D6"
+FG_MUTED      = "#8E8496"
+COLOR_ACCENT  = "#6C4C87"
+COLOR_HOVER   = "#5A3E70"
+COLOR_PRESS   = "#4E3366"
+COLOR_DISABLED = "#B7A8C6"
+COLOR_BORDER  = "#DCD5E6"
+COLOR_CHIP_BG = "#E9E2F1"   # fondo del chip de preview
 
 # -- Excel --
 COLOR_HEADER_XL = "6C4C87"
@@ -66,30 +70,79 @@ BLOQUES_COMUNES = [
 def _card(parent, title=""):
     """Frame tipo tarjeta con borde sutil y esquinas simuladas."""
     outer = tk.Frame(parent, bg=COLOR_BORDER, padx=1, pady=1)
-    inner = tk.Frame(outer, bg=BG_CARD, padx=16, pady=12)
-    inner.pack(fill="x")
+    inner = tk.Frame(outer, bg=BG_CARD, padx=18, pady=14)
+    inner.pack(fill="both", expand=True)
     if title:
         tk.Label(
             inner, text=title,
             font=("Helvetica", 10, "bold"),
             bg=BG_CARD, fg=FG_MUTED
-        ).pack(anchor="w", pady=(0, 6))
+        ).pack(anchor="w", pady=(0, 8))
     return outer, inner
 
 
-class _HoverButton(tk.Button):
-    """Botón con efecto hover."""
-    def __init__(self, master, **kw):
-        super().__init__(master, **kw)
-        self._normal_bg = kw.get("bg", COLOR_ACCENT)
-        self.bind("<Enter>", self._on_enter)
-        self.bind("<Leave>", self._on_leave)
+class RoundButton(tk.Canvas):
+    """Botón con esquinas redondeadas, hover y estado deshabilitado."""
 
-    def _on_enter(self, _):
-        self.config(bg=COLOR_HOVER)
+    def __init__(self, master, text, command, height=48, radius=14,
+                 font=("Helvetica", 13, "bold")):
+        super().__init__(master, height=height, bg=master["bg"],
+                         highlightthickness=0, cursor="hand2")
+        self._command = command
+        self._text = text
+        self._font = font
+        self._radius = radius
+        self._state = "normal"
+        self._fill = COLOR_ACCENT
 
-    def _on_leave(self, _):
-        self.config(bg=self._normal_bg)
+        self.bind("<Configure>", lambda _: self._draw())
+        self.bind("<Enter>", lambda _: self._set_fill(COLOR_HOVER))
+        self.bind("<Leave>", lambda _: self._set_fill(COLOR_ACCENT))
+        self.bind("<Button-1>", lambda _: self._set_fill(COLOR_PRESS))
+        self.bind("<ButtonRelease-1>", self._on_release)
+
+    def _set_fill(self, color):
+        if self._state == "normal":
+            self._fill = color
+            self._draw()
+
+    def _on_release(self, event):
+        if (self._state == "normal"
+                and 0 <= event.x <= self.winfo_width()
+                and 0 <= event.y <= self.winfo_height()):
+            self._set_fill(COLOR_HOVER)
+            self._command()
+
+    def _draw(self):
+        self.delete("all")
+        w, h = self.winfo_width(), self.winfo_height()
+        if w <= 1 or h <= 1:
+            return
+        r = self._radius
+        fill = COLOR_DISABLED if self._state == "disabled" else self._fill
+        pts = [
+            r, 0, w - r, 0, w, 0, w, r, w, h - r, w, h,
+            w - r, h, r, h, 0, h, 0, h - r, 0, r, 0, 0,
+        ]
+        self.create_polygon(pts, smooth=True, fill=fill)
+        self.create_text(w // 2, h // 2, text=self._text,
+                         fill="#FFFFFF", font=self._font)
+
+    def config(self, cnf=None, **kw):
+        state = kw.pop("state", None)
+        text = kw.pop("text", None)
+        if state is not None:
+            self._state = "disabled" if str(state) == "disabled" else "normal"
+            self._fill = COLOR_ACCENT
+            super().config(cursor="arrow" if self._state == "disabled" else "hand2")
+        if text is not None:
+            self._text = text
+        if state is not None or text is not None:
+            self._draw()
+        if cnf or kw:
+            return super().config(cnf, **kw) if cnf else super().config(**kw)
+
+    configure = config
 
 
 class AppTurnosNativa:
@@ -101,38 +154,52 @@ class AppTurnosNativa:
 
         self._build_header()
         self._build_body()
-        self._centrar_ventana(480, 460)
+        self._centrar_ventana(560, 330)
 
     # ------------------------------------------------------------------ #
     #  UI BUILD                                                            #
     # ------------------------------------------------------------------ #
 
     def _build_header(self):
-        hdr = tk.Frame(self.root, bg=BG_HEADER, height=56)
+        hdr = tk.Frame(self.root, bg=BG_HEADER, height=72)
         hdr.pack(fill="x")
         hdr.pack_propagate(False)
         tk.Label(
-            hdr, text="Gestor de Limpieza",
-            font=("Helvetica", 15, "bold"),
+            hdr, text="✦  Gestor de Turnos",
+            font=("Helvetica", 16, "bold"),
             bg=BG_HEADER, fg=FG_HEADER
-        ).place(relx=0.5, rely=0.5, anchor="center")
+        ).place(relx=0.5, rely=0.36, anchor="center")
+        tk.Label(
+            hdr, text="Planificador de limpieza semanal",
+            font=("Helvetica", 10),
+            bg=BG_HEADER, fg=FG_HEADER_SUB
+        ).place(relx=0.5, rely=0.70, anchor="center")
 
     def _build_body(self):
         body = tk.Frame(self.root, bg=BG_APP)
-        body.pack(fill="both", expand=True, padx=20, pady=18)
+        body.pack(fill="both", expand=True, padx=24, pady=20)
 
         style = ttk.Style()
-        style.theme_use("default")
+        style.theme_use("clam")
         style.configure(
             "Date.TCombobox",
-            fieldbackground=BG_APP,
-            background=BG_APP,
+            fieldbackground=BG_CARD,
+            background=BG_CARD,
             foreground=FG_TITLE,
-            selectbackground=COLOR_ACCENT,
-            selectforeground="#FFFFFF",
+            arrowcolor=COLOR_ACCENT,
             bordercolor=COLOR_BORDER,
+            lightcolor=BG_CARD,
+            darkcolor=BG_CARD,
+            selectbackground=BG_CARD,
+            selectforeground=FG_TITLE,
             relief="flat",
+            padding=3,
         )
+        style.map("Date.TCombobox",
+                  fieldbackground=[("readonly", BG_CARD)],
+                  foreground=[("readonly", FG_TITLE)])
+        self.root.option_add("*TCombobox*Listbox.selectBackground", COLOR_ACCENT)
+        self.root.option_add("*TCombobox*Listbox.selectForeground", "#FFFFFF")
 
         # Defaults dinámicos
         today = datetime.today()
@@ -143,13 +210,25 @@ class AppTurnosNativa:
             y_end += 1
         last_day_end = calendar.monthrange(y_end, m_end)[1]
 
-        # --- Tarjeta FECHA DE INICIO ---
-        card_outer, card_ini = _card(body, "FECHA DE INICIO")
-        card_outer.pack(fill="x", pady=(0, 10))
+        # --- Tarjetas de fecha, lado a lado ---
+        cards_row = tk.Frame(body, bg=BG_APP)
+        cards_row.pack(fill="x")
+        cards_row.columnconfigure(0, weight=1, uniform="fechas")
+        cards_row.columnconfigure(2, weight=1, uniform="fechas")
+
+        card_outer, card_ini = _card(cards_row, "DESDE")
+        card_outer.grid(row=0, column=0, sticky="nsew")
+
+        tk.Label(
+            cards_row, text="→", font=("Helvetica", 15),
+            bg=BG_APP, fg=FG_MUTED
+        ).grid(row=0, column=1, padx=8)
+
+        card_outer2, card_fin = _card(cards_row, "HASTA")
+        card_outer2.grid(row=0, column=2, sticky="nsew")
 
         row_ini = tk.Frame(card_ini, bg=BG_CARD)
         row_ini.pack(anchor="w")
-
         self.d_ini, self.m_ini, self.a_ini = self._date_row(
             row_ini,
             str(today.day).zfill(2),
@@ -157,13 +236,8 @@ class AppTurnosNativa:
             str(today.year),
         )
 
-        # --- Tarjeta FECHA DE FIN ---
-        card_outer2, card_fin = _card(body, "FECHA DE FIN")
-        card_outer2.pack(fill="x", pady=(0, 10))
-
         row_fin = tk.Frame(card_fin, bg=BG_CARD)
         row_fin.pack(anchor="w")
-
         self.d_fin, self.m_fin, self.a_fin = self._date_row(
             row_fin,
             str(last_day_end).zfill(2),
@@ -171,25 +245,21 @@ class AppTurnosNativa:
             str(y_end),
         )
 
-        # --- Preview de semanas ---
+        # --- Chip de preview de semanas ---
         self._preview_var = tk.StringVar(value="")
         tk.Label(
             body,
             textvariable=self._preview_var,
-            font=("Helvetica", 11),
-            bg=BG_APP, fg=FG_MUTED
-        ).pack(pady=(4, 14))
+            font=("Helvetica", 11, "bold"),
+            bg=COLOR_CHIP_BG, fg=COLOR_ACCENT,
+            padx=16, pady=6,
+        ).pack(pady=(18, 18))
 
         # --- Botón principal ---
-        self.btn = _HoverButton(
+        self.btn = RoundButton(
             body,
             text="Generar y Guardar Excel",
             command=self.procesar,
-            bg=COLOR_ACCENT, fg="#FFFFFF",
-            font=("Helvetica", 13, "bold"),
-            relief="flat", cursor="hand2",
-            padx=20, pady=10,
-            activebackground=COLOR_HOVER, activeforeground="#FFFFFF",
         )
         self.btn.pack(fill="x")
 
@@ -202,12 +272,16 @@ class AppTurnosNativa:
 
     def _date_row(self, parent, day, month, year):
         """Fila compacta DD / MM / AAAA con estilo coherente."""
+        font_combo = ("Helvetica", 13)
         combo_day   = ttk.Combobox(parent, values=[str(i).zfill(2) for i in range(1, 32)],
-                                    width=3, state="readonly", style="Date.TCombobox")
+                                    width=3, state="readonly", style="Date.TCombobox",
+                                    font=font_combo, justify="center")
         combo_month = ttk.Combobox(parent, values=[str(i).zfill(2) for i in range(1, 13)],
-                                    width=3, state="readonly", style="Date.TCombobox")
+                                    width=3, state="readonly", style="Date.TCombobox",
+                                    font=font_combo, justify="center")
         combo_year  = ttk.Combobox(parent, values=[str(i) for i in range(2024, 2036)],
-                                    width=5, state="readonly", style="Date.TCombobox")
+                                    width=5, state="readonly", style="Date.TCombobox",
+                                    font=font_combo, justify="center")
 
         combo_day.set(day)
         combo_month.set(month)
