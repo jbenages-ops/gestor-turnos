@@ -86,6 +86,19 @@ class AppTurnosNativa:
         body = tk.Frame(self.root, bg=BG_APP)
         body.pack(fill="both", expand=True, padx=20, pady=18)
 
+        style = ttk.Style()
+        style.theme_use("default")
+        style.configure(
+            "Date.TCombobox",
+            fieldbackground=BG_APP,
+            background=BG_APP,
+            foreground=FG_TITLE,
+            selectbackground=COLOR_ACCENT,
+            selectforeground="#FFFFFF",
+            bordercolor=COLOR_BORDER,
+            relief="flat",
+        )
+
         # Defaults dinámicos
         today = datetime.today()
         m_end = today.month + 2
@@ -154,19 +167,6 @@ class AppTurnosNativa:
 
     def _date_row(self, parent, day, month, year):
         """Fila compacta DD / MM / AAAA con estilo coherente."""
-        style = ttk.Style()
-        style.theme_use("default")
-        style.configure(
-            "Date.TCombobox",
-            fieldbackground=BG_APP,
-            background=BG_APP,
-            foreground=FG_TITLE,
-            selectbackground=COLOR_ACCENT,
-            selectforeground="#FFFFFF",
-            bordercolor=COLOR_BORDER,
-            relief="flat",
-        )
-
         combo_day   = ttk.Combobox(parent, values=[str(i).zfill(2) for i in range(1, 32)],
                                     width=3, state="readonly", style="Date.TCombobox")
         combo_month = ttk.Combobox(parent, values=[str(i).zfill(2) for i in range(1, 13)],
@@ -202,11 +202,7 @@ class AppTurnosNativa:
         inicio = self.obtener_fecha(self.d_ini.get(), self.m_ini.get(), self.a_ini.get())
         fin    = self.obtener_fecha(self.d_fin.get(), self.m_fin.get(), self.a_fin.get())
         if inicio and fin and fin > inicio:
-            curr = inicio - timedelta(days=inicio.weekday())
-            n = 0
-            while curr <= fin:
-                n += 1
-                curr += timedelta(days=7)
+            n = len(self._calcular_semanas(inicio, fin))
             self._preview_var.set(f"{n} semana{'s' if n != 1 else ''} a generar")
         else:
             self._preview_var.set("Comprueba las fechas")
@@ -216,6 +212,15 @@ class AppTurnosNativa:
             return datetime(int(a), int(m), int(d))
         except ValueError:
             return None
+
+    def _calcular_semanas(self, inicio, fin):
+        """Semanas (lunes-domingo) que cubren el rango [inicio, fin]."""
+        curr = inicio - timedelta(days=inicio.weekday())
+        semanas = []
+        while curr <= fin:
+            semanas.append((curr, curr + timedelta(days=6)))
+            curr += timedelta(days=7)
+        return semanas
 
     # ------------------------------------------------------------------ #
     #  LÓGICA DE TURNOS                                                    #
@@ -362,8 +367,7 @@ class AppTurnosNativa:
                 for col_idx in range(1, ws.max_column + 1):
                     ws.column_dimensions[get_column_letter(col_idx)].width = 20
 
-                for row_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=ws.max_row,
-                                                            min_col=1, max_col=ws.max_column)):
+                for row_idx, row in enumerate(ws.iter_rows()):
                     ws.row_dimensions[row[0].row].height = 45
 
                     for cell in row:
@@ -391,12 +395,7 @@ class AppTurnosNativa:
             messagebox.showerror("Error", "La fecha de fin debe ser posterior a la de inicio.")
             return
 
-        curr = inicio - timedelta(days=inicio.weekday())
-
-        semanas = []
-        while curr <= fin:
-            semanas.append((curr, curr + timedelta(days=6)))
-            curr += timedelta(days=7)
+        semanas = self._calcular_semanas(inicio, fin)
 
         nombre_archivo_sugerido = (
             f"Turnos limpieza {inicio.strftime('%d-%m-%Y')} a {fin.strftime('%d-%m-%Y')}.xlsx"
