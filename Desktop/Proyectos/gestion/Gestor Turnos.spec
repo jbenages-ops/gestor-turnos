@@ -1,20 +1,24 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
+from PyInstaller.utils.hooks import collect_submodules
 
 block_cipher = None
+
+hidden = [
+    'openpyxl',
+    'openpyxl.styles',
+    'openpyxl.utils',
+    'calendar',
+]
+# pandas arrastra muchos submódulos que PyInstaller no detecta solo.
+hidden += collect_submodules('pandas')
 
 a = Analysis(
     ['generador_turnos.py'],
     pathex=[os.path.dirname(os.path.abspath(SPEC))],
     binaries=[],
     datas=[],
-    hiddenimports=[
-        'openpyxl',
-        'openpyxl.styles',
-        'openpyxl.utils',
-        'pandas',
-        'calendar',
-    ],
+    hiddenimports=hidden,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
