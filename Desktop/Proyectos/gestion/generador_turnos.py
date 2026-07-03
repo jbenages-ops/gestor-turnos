@@ -2,6 +2,7 @@ import calendar
 import os
 import subprocess
 import sys
+import traceback
 import pandas as pd
 from datetime import datetime, timedelta
 import tkinter as tk
@@ -10,51 +11,138 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 
-# -- Paleta de colores --
-BG_APP        = "#F2F2F7"   # fondo general (estilo macOS)
+# -- Paleta de colores (identidad morada, a juego con el icono y el Excel) --
+BG_APP        = "#F4F2F8"   # fondo general, lavanda muy claro
 BG_CARD       = "#FFFFFF"   # fondo de tarjetas
-BG_HEADER     = "#1C1C1E"   # barra de título
+BG_HEADER     = "#3B2B4F"   # barra de título, morado oscuro
 FG_HEADER     = "#FFFFFF"
-FG_TITLE      = "#1C1C1E"
+FG_HEADER_SUB = "#C8B9DC"   # subtítulo de la cabecera
+FG_TITLE      = "#241A31"
 FG_LABEL      = "#3A3A3C"
-FG_MUTED      = "#8E8E93"
-COLOR_ACCENT  = "#007AFF"
-COLOR_HOVER   = "#0062CC"
-COLOR_BORDER  = "#D1D1D6"
+FG_MUTED      = "#8E8496"
+COLOR_ACCENT  = "#6C4C87"
+COLOR_HOVER   = "#5A3E70"
+COLOR_PRESS   = "#4E3366"
+COLOR_DISABLED = "#B7A8C6"
+COLOR_BORDER  = "#DCD5E6"
+COLOR_CHIP_BG = "#E9E2F1"   # fondo del chip de preview
 
 # -- Excel --
 COLOR_HEADER_XL = "6C4C87"
 COLOR_ROW_ODD   = "C2B4CA"
 COLOR_ROW_EVN   = "DCD3E1"
 
+# ---------------------------------------------------------------------- #
+#  CONFIGURACIÓN DEL EQUIPO Y TAREAS                                      #
+#  (único sitio a editar si cambia el personal o su disponibilidad)       #
+# ---------------------------------------------------------------------- #
+
+DIAS_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
+
+# Zonas de Juan
+ESTANCIAS_JUAN = ["Hab. Juan", "Hab. AP", "Baño Juan"]
+STAFF_JUAN = ["Lina", "Eva", "Guillem", "Valentina", "Miguel"]
+DIAS_DISPONIBLES = {
+    "Lina":      ["Lunes"],
+    "Eva":       ["Miércoles", "Jueves", "Viernes"],
+    "Valentina": ["Martes", "Miércoles", "Jueves", "Viernes"],
+    "Miguel":    ["Lunes", "Martes"],
+    "Guillem":   ["Sábado"],
+}
+# Tareas comunes dentro de Zonas de Juan, rotando en ciclos de 3 semanas.
+TAREAS_COMUNES_JUAN = {
+    0: [("Miércoles", "Entrada")],
+    1: [("Viernes",   "Cocina")],
+    2: [("Lunes",     "Salón"), ("Martes", "Cocina")],
+}
+
+# Zonas Comunes
+STAFF_COMUNES = ["Lina", "Angie", "Juan"]
+# Cada bloque es (día 1, tarea 1, día 2, tarea 2): la persona que cubre el
+# bloque hace ambas tareas, en esos dos días fijos.
+BLOQUES_COMUNES = [
+    ("Lunes",     "Salón",   "Martes",  "Cocina"),
+    ("Miércoles", "Entrada", "Jueves",  "Salón"),
+    ("Viernes",   "Cocina",  "Sábado",  "Entrada"),
+]
+
 
 def _card(parent, title=""):
     """Frame tipo tarjeta con borde sutil y esquinas simuladas."""
     outer = tk.Frame(parent, bg=COLOR_BORDER, padx=1, pady=1)
-    inner = tk.Frame(outer, bg=BG_CARD, padx=16, pady=12)
-    inner.pack(fill="x")
+    inner = tk.Frame(outer, bg=BG_CARD, padx=18, pady=14)
+    inner.pack(fill="both", expand=True)
     if title:
         tk.Label(
             inner, text=title,
             font=("Helvetica", 10, "bold"),
             bg=BG_CARD, fg=FG_MUTED
-        ).pack(anchor="w", pady=(0, 6))
+        ).pack(anchor="w", pady=(0, 8))
     return outer, inner
 
 
-class _HoverButton(tk.Button):
-    """Botón con efecto hover."""
-    def __init__(self, master, **kw):
-        super().__init__(master, **kw)
-        self._normal_bg = kw.get("bg", COLOR_ACCENT)
-        self.bind("<Enter>", self._on_enter)
-        self.bind("<Leave>", self._on_leave)
+class RoundButton(tk.Canvas):
+    """Botón con esquinas redondeadas, hover y estado deshabilitado."""
 
-    def _on_enter(self, _):
-        self.config(bg=COLOR_HOVER)
+    def __init__(self, master, text, command, height=48, radius=14,
+                 font=("Helvetica", 13, "bold")):
+        super().__init__(master, height=height, bg=master["bg"],
+                         highlightthickness=0, cursor="hand2")
+        self._command = command
+        self._text = text
+        self._font = font
+        self._radius = radius
+        self._state = "normal"
+        self._fill = COLOR_ACCENT
 
-    def _on_leave(self, _):
-        self.config(bg=self._normal_bg)
+        self.bind("<Configure>", lambda _: self._draw())
+        self.bind("<Enter>", lambda _: self._set_fill(COLOR_HOVER))
+        self.bind("<Leave>", lambda _: self._set_fill(COLOR_ACCENT))
+        self.bind("<Button-1>", lambda _: self._set_fill(COLOR_PRESS))
+        self.bind("<ButtonRelease-1>", self._on_release)
+
+    def _set_fill(self, color):
+        if self._state == "normal":
+            self._fill = color
+            self._draw()
+
+    def _on_release(self, event):
+        if (self._state == "normal"
+                and 0 <= event.x <= self.winfo_width()
+                and 0 <= event.y <= self.winfo_height()):
+            self._set_fill(COLOR_HOVER)
+            self._command()
+
+    def _draw(self):
+        self.delete("all")
+        w, h = self.winfo_width(), self.winfo_height()
+        if w <= 1 or h <= 1:
+            return
+        r = self._radius
+        fill = COLOR_DISABLED if self._state == "disabled" else self._fill
+        pts = [
+            r, 0, w - r, 0, w, 0, w, r, w, h - r, w, h,
+            w - r, h, r, h, 0, h, 0, h - r, 0, r, 0, 0,
+        ]
+        self.create_polygon(pts, smooth=True, fill=fill)
+        self.create_text(w // 2, h // 2, text=self._text,
+                         fill="#FFFFFF", font=self._font)
+
+    def config(self, cnf=None, **kw):
+        state = kw.pop("state", None)
+        text = kw.pop("text", None)
+        if state is not None:
+            self._state = "disabled" if str(state) == "disabled" else "normal"
+            self._fill = COLOR_ACCENT
+            super().config(cursor="arrow" if self._state == "disabled" else "hand2")
+        if text is not None:
+            self._text = text
+        if state is not None or text is not None:
+            self._draw()
+        if cnf or kw:
+            return super().config(cnf, **kw) if cnf else super().config(**kw)
+
+    configure = config
 
 
 class AppTurnosNativa:
@@ -66,25 +154,52 @@ class AppTurnosNativa:
 
         self._build_header()
         self._build_body()
-        self._centrar_ventana(480, 460)
+        self._centrar_ventana(560, 330)
 
     # ------------------------------------------------------------------ #
     #  UI BUILD                                                            #
     # ------------------------------------------------------------------ #
 
     def _build_header(self):
-        hdr = tk.Frame(self.root, bg=BG_HEADER, height=56)
+        hdr = tk.Frame(self.root, bg=BG_HEADER, height=72)
         hdr.pack(fill="x")
         hdr.pack_propagate(False)
         tk.Label(
-            hdr, text="Gestor de Limpieza",
-            font=("Helvetica", 15, "bold"),
+            hdr, text="✦  Gestor de Turnos",
+            font=("Helvetica", 16, "bold"),
             bg=BG_HEADER, fg=FG_HEADER
-        ).place(relx=0.5, rely=0.5, anchor="center")
+        ).place(relx=0.5, rely=0.36, anchor="center")
+        tk.Label(
+            hdr, text="Planificador de limpieza semanal",
+            font=("Helvetica", 10),
+            bg=BG_HEADER, fg=FG_HEADER_SUB
+        ).place(relx=0.5, rely=0.70, anchor="center")
 
     def _build_body(self):
         body = tk.Frame(self.root, bg=BG_APP)
-        body.pack(fill="both", expand=True, padx=20, pady=18)
+        body.pack(fill="both", expand=True, padx=24, pady=20)
+
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure(
+            "Date.TCombobox",
+            fieldbackground=BG_CARD,
+            background=BG_CARD,
+            foreground=FG_TITLE,
+            arrowcolor=COLOR_ACCENT,
+            bordercolor=COLOR_BORDER,
+            lightcolor=BG_CARD,
+            darkcolor=BG_CARD,
+            selectbackground=BG_CARD,
+            selectforeground=FG_TITLE,
+            relief="flat",
+            padding=3,
+        )
+        style.map("Date.TCombobox",
+                  fieldbackground=[("readonly", BG_CARD)],
+                  foreground=[("readonly", FG_TITLE)])
+        self.root.option_add("*TCombobox*Listbox.selectBackground", COLOR_ACCENT)
+        self.root.option_add("*TCombobox*Listbox.selectForeground", "#FFFFFF")
 
         # Defaults dinámicos
         today = datetime.today()
@@ -95,13 +210,25 @@ class AppTurnosNativa:
             y_end += 1
         last_day_end = calendar.monthrange(y_end, m_end)[1]
 
-        # --- Tarjeta FECHA DE INICIO ---
-        card_outer, card_ini = _card(body, "FECHA DE INICIO")
-        card_outer.pack(fill="x", pady=(0, 10))
+        # --- Tarjetas de fecha, lado a lado ---
+        cards_row = tk.Frame(body, bg=BG_APP)
+        cards_row.pack(fill="x")
+        cards_row.columnconfigure(0, weight=1, uniform="fechas")
+        cards_row.columnconfigure(2, weight=1, uniform="fechas")
+
+        card_outer, card_ini = _card(cards_row, "DESDE")
+        card_outer.grid(row=0, column=0, sticky="nsew")
+
+        tk.Label(
+            cards_row, text="→", font=("Helvetica", 15),
+            bg=BG_APP, fg=FG_MUTED
+        ).grid(row=0, column=1, padx=8)
+
+        card_outer2, card_fin = _card(cards_row, "HASTA")
+        card_outer2.grid(row=0, column=2, sticky="nsew")
 
         row_ini = tk.Frame(card_ini, bg=BG_CARD)
         row_ini.pack(anchor="w")
-
         self.d_ini, self.m_ini, self.a_ini = self._date_row(
             row_ini,
             str(today.day).zfill(2),
@@ -109,13 +236,8 @@ class AppTurnosNativa:
             str(today.year),
         )
 
-        # --- Tarjeta FECHA DE FIN ---
-        card_outer2, card_fin = _card(body, "FECHA DE FIN")
-        card_outer2.pack(fill="x", pady=(0, 10))
-
         row_fin = tk.Frame(card_fin, bg=BG_CARD)
         row_fin.pack(anchor="w")
-
         self.d_fin, self.m_fin, self.a_fin = self._date_row(
             row_fin,
             str(last_day_end).zfill(2),
@@ -123,56 +245,43 @@ class AppTurnosNativa:
             str(y_end),
         )
 
-        # --- Preview de semanas ---
+        # --- Chip de preview de semanas ---
         self._preview_var = tk.StringVar(value="")
         tk.Label(
             body,
             textvariable=self._preview_var,
-            font=("Helvetica", 11),
-            bg=BG_APP, fg=FG_MUTED
-        ).pack(pady=(4, 14))
+            font=("Helvetica", 11, "bold"),
+            bg=COLOR_CHIP_BG, fg=COLOR_ACCENT,
+            padx=16, pady=6,
+        ).pack(pady=(18, 18))
 
         # --- Botón principal ---
-        self.btn = _HoverButton(
+        self.btn = RoundButton(
             body,
             text="Generar y Guardar Excel",
             command=self.procesar,
-            bg=COLOR_ACCENT, fg="#FFFFFF",
-            font=("Helvetica", 13, "bold"),
-            relief="flat", cursor="hand2",
-            padx=20, pady=10,
-            activebackground=COLOR_HOVER, activeforeground="#FFFFFF",
         )
         self.btn.pack(fill="x")
 
-        # Bind para preview
+        # Bind: ajustar días válidos del mes y refrescar preview
         for widget in (self.d_ini, self.m_ini, self.a_ini,
                         self.d_fin, self.m_fin, self.a_fin):
-            widget.bind("<<ComboboxSelected>>", lambda _: self._actualizar_preview())
+            widget.bind("<<ComboboxSelected>>", lambda _: self._on_fecha_cambiada())
 
-        self._actualizar_preview()
+        self._on_fecha_cambiada()
 
     def _date_row(self, parent, day, month, year):
         """Fila compacta DD / MM / AAAA con estilo coherente."""
-        style = ttk.Style()
-        style.theme_use("default")
-        style.configure(
-            "Date.TCombobox",
-            fieldbackground=BG_APP,
-            background=BG_APP,
-            foreground=FG_TITLE,
-            selectbackground=COLOR_ACCENT,
-            selectforeground="#FFFFFF",
-            bordercolor=COLOR_BORDER,
-            relief="flat",
-        )
-
+        font_combo = ("Helvetica", 13)
         combo_day   = ttk.Combobox(parent, values=[str(i).zfill(2) for i in range(1, 32)],
-                                    width=3, state="readonly", style="Date.TCombobox")
+                                    width=3, state="readonly", style="Date.TCombobox",
+                                    font=font_combo, justify="center")
         combo_month = ttk.Combobox(parent, values=[str(i).zfill(2) for i in range(1, 13)],
-                                    width=3, state="readonly", style="Date.TCombobox")
+                                    width=3, state="readonly", style="Date.TCombobox",
+                                    font=font_combo, justify="center")
         combo_year  = ttk.Combobox(parent, values=[str(i) for i in range(2024, 2036)],
-                                    width=5, state="readonly", style="Date.TCombobox")
+                                    width=5, state="readonly", style="Date.TCombobox",
+                                    font=font_combo, justify="center")
 
         combo_day.set(day)
         combo_month.set(month)
@@ -198,15 +307,26 @@ class AppTurnosNativa:
         y = (self.root.winfo_screenheight() - alto)  // 2
         self.root.geometry(f"{ancho}x{alto}+{x}+{y}")
 
+    def _on_fecha_cambiada(self):
+        self._ajustar_dias_del_mes(self.d_ini, self.m_ini, self.a_ini)
+        self._ajustar_dias_del_mes(self.d_fin, self.m_fin, self.a_fin)
+        self._actualizar_preview()
+
+    def _ajustar_dias_del_mes(self, combo_d, combo_m, combo_a):
+        """Limita el combo de día a los días reales del mes/año elegidos."""
+        try:
+            ultimo = calendar.monthrange(int(combo_a.get()), int(combo_m.get()))[1]
+        except ValueError:
+            return
+        combo_d["values"] = [str(i).zfill(2) for i in range(1, ultimo + 1)]
+        if int(combo_d.get()) > ultimo:
+            combo_d.set(str(ultimo).zfill(2))
+
     def _actualizar_preview(self):
         inicio = self.obtener_fecha(self.d_ini.get(), self.m_ini.get(), self.a_ini.get())
         fin    = self.obtener_fecha(self.d_fin.get(), self.m_fin.get(), self.a_fin.get())
         if inicio and fin and fin > inicio:
-            curr = inicio - timedelta(days=inicio.weekday())
-            n = 0
-            while curr <= fin:
-                n += 1
-                curr += timedelta(days=7)
+            n = len(self._calcular_semanas(inicio, fin))
             self._preview_var.set(f"{n} semana{'s' if n != 1 else ''} a generar")
         else:
             self._preview_var.set("Comprueba las fechas")
@@ -217,100 +337,141 @@ class AppTurnosNativa:
         except ValueError:
             return None
 
+    def _calcular_semanas(self, inicio, fin):
+        """Semanas (lunes-domingo) que cubren el rango [inicio, fin]."""
+        curr = inicio - timedelta(days=inicio.weekday())
+        semanas = []
+        while curr <= fin:
+            semanas.append((curr, curr + timedelta(days=6)))
+            curr += timedelta(days=7)
+        return semanas
+
     # ------------------------------------------------------------------ #
-    #  LÓGICA DE TURNOS (sin cambios)                                      #
+    #  LÓGICA DE TURNOS                                                    #
     # ------------------------------------------------------------------ #
 
     def generar_juan(self, semanas):
-        estancias = ["Hab. Juan", "Hab. AP", "Baño Juan"]
-        staff = ["Lina", "Eva", "Guillem", "Valentina", "Miguel"]
-
-        dias_disponibles = {
-            "Lina":      ["Lunes"],
-            "Eva":       ["Miércoles", "Jueves", "Viernes"],
-            "Valentina": ["Martes", "Miércoles", "Jueves", "Viernes"],
-            "Miguel":    ["Lunes", "Martes"],
-            "Guillem":   ["Sábado"],
-        }
+        estancias = ESTANCIAS_JUAN
+        staff = STAFF_JUAN
+        dias_disponibles = DIAS_DISPONIBLES
 
         rows = []
+        ocupados_por_semana = []
         idx = 0
         idx_comunes = 0
-        miguel_dia_idx = 0
+        # Puntero de rotación por persona para no repetir siempre su primer día disponible.
+        rotacion_dia = {persona: 0 for persona in staff}
 
         for i, (f_ini, f_fin) in enumerate(semanas):
-            row = {
-                "Semana":    f"{f_ini.strftime('%d/%m')} -\n{f_fin.strftime('%d/%m')}",
-                "Lunes":     "-", "Martes":    "-", "Miércoles": "-",
-                "Jueves":    "-", "Viernes":   "-", "Sábado":    "-",
-            }
+            row = {"Semana": f"{f_ini.strftime('%d/%m')} -\n{f_fin.strftime('%d/%m')}"}
+            row.update({d: "-" for d in DIAS_SEMANA})
 
-            p1 = staff[idx % 5]
-            p2 = staff[(idx + 1) % 5]
-            p3 = staff[(idx + 2) % 5]
+            # Días ya usados esta semana por cada persona, compartido entre
+            # el reparto de estancias y el de tareas comunes para no
+            # apilar dos tareas de la misma persona en un mismo día.
+            personas_por_dia = {d: set() for d in DIAS_SEMANA}
+
+            def _asignar(persona, tarea, dia):
+                etiqueta = f"{tarea} ({persona})"
+                if row[dia] == "-":
+                    row[dia] = etiqueta
+                else:
+                    row[dia] += f"\n| {etiqueta}"
+                personas_por_dia[dia].add(persona)
+
+            n_staff = len(staff)
+            p1 = staff[idx % n_staff]
+            p2 = staff[(idx + 1) % n_staff]
+            p3 = staff[(idx + 2) % n_staff]
             idx += 3
 
             asignaciones = [(p1, estancias[0]), (p2, estancias[1]), (p3, estancias[2])]
 
-            dias_ocupados = set()
             for persona, tarea in asignaciones:
-                if persona == "Miguel":
-                    dias_p = ["Lunes", "Martes"] if miguel_dia_idx % 2 == 0 else ["Martes", "Lunes"]
-                    miguel_dia_idx += 1
-                else:
-                    dias_p = dias_disponibles[persona]
+                dias_p = dias_disponibles[persona]
+                n = len(dias_p)
+                inicio_rot = rotacion_dia[persona]
 
-                dia_elegido = dias_p[0]
-                for d in dias_p:
-                    if d not in dias_ocupados:
-                        dia_elegido = d
+                dia_elegido = None
+                for offset in range(n):
+                    candidato_dia = dias_p[(inicio_rot + offset) % n]
+                    if not personas_por_dia[candidato_dia]:
+                        dia_elegido = candidato_dia
                         break
-                dias_ocupados.add(dia_elegido)
+                if dia_elegido is None:
+                    dia_elegido = dias_p[inicio_rot % n]
 
-                etiqueta = f"{tarea} ({persona})"
-                if row[dia_elegido] == "-":
-                    row[dia_elegido] = etiqueta
-                else:
-                    row[dia_elegido] += f"\n| {etiqueta}"
+                rotacion_dia[persona] = (dias_p.index(dia_elegido) + 1) % n
+                _asignar(persona, tarea, dia_elegido)
 
-            juan_comunes_tareas = {
-                0: [("Miércoles", "Entrada")],
-                1: [("Viernes",   "Cocina")],
-                2: [("Lunes",     "Salón"), ("Martes", "Cocina")],
-            }[i % 3]
+            juan_comunes_tareas = TAREAS_COMUNES_JUAN[i % len(TAREAS_COMUNES_JUAN)]
 
             for dia, tarea in juan_comunes_tareas:
+                candidato_libre = candidato_ocupado = None
+                offset_libre = offset_ocupado = None
+
                 for offset in range(len(staff)):
                     candidato = staff[(idx_comunes + offset) % len(staff)]
-                    if dia in dias_disponibles[candidato]:
-                        etiqueta = f"{tarea} ({candidato})"
-                        if row[dia] == "-":
-                            row[dia] = etiqueta
-                        else:
-                            row[dia] += f"\n| {etiqueta}"
-                        idx_comunes = (idx_comunes + offset + 1) % len(staff)
+                    if dia not in dias_disponibles[candidato]:
+                        continue
+                    if candidato not in personas_por_dia[dia]:
+                        candidato_libre, offset_libre = candidato, offset
                         break
+                    elif candidato_ocupado is None:
+                        candidato_ocupado, offset_ocupado = candidato, offset
 
+                if candidato_libre is not None:
+                    candidato, offset = candidato_libre, offset_libre
+                elif candidato_ocupado is not None:
+                    candidato, offset = candidato_ocupado, offset_ocupado
+                else:
+                    raise ValueError(
+                        f"Nadie del equipo está disponible el {dia} para la tarea "
+                        f"'{tarea}'. Revisa 'dias_disponibles'."
+                    )
+
+                _asignar(candidato, tarea, dia)
+                idx_comunes = (idx_comunes + offset + 1) % len(staff)
+
+            ocupados_por_semana.append(personas_por_dia)
             rows.append(row)
 
-        return pd.DataFrame(rows)
+        return pd.DataFrame(rows), ocupados_por_semana
 
-    def generar_comunes(self, semanas):
-        staff = ["Lina", "Angie", "Juan"]
+    def generar_comunes(self, semanas, ocupados_juan=None):
+        staff = STAFF_COMUNES
+        bloques = BLOQUES_COMUNES
+        ocupados_juan = ocupados_juan or [{}] * len(semanas)
+
+        def _ocupado(persona, ocupado_semana, d1, d2):
+            return persona in ocupado_semana.get(d1, ()) or persona in ocupado_semana.get(d2, ())
+
         rows = []
-
+        n_staff = len(staff)
         for i, (f_ini, f_fin) in enumerate(semanas):
-            p_A = staff[i % 3]
-            p_B = staff[(i + 1) % 3]
-            p_C = staff[(i + 2) % 3]
+            personas = [staff[(i + k) % n_staff] for k in range(len(bloques))]
+            ocupado_semana = ocupados_juan[i] if i < len(ocupados_juan) else {}
 
-            row = {
-                "Semana":    f"{f_ini.strftime('%d/%m')} -\n{f_fin.strftime('%d/%m')}",
-                "Lunes":     f"Salón ({p_A})",
-                "Martes":    f"Cocina ({p_A})",
-                "Miércoles": f"Entrada ({p_C})",
-                "Viernes":   f"Cocina ({p_B})",
-            }
+            # Si a alguien ya le toca una tarea de "Zonas de Juan" un día de
+            # su bloque (p.ej. Lina, que está en ambos equipos), se
+            # intercambia su bloque con el de otra persona libre esos días.
+            for b_idx, (d1, _, d2, _) in enumerate(bloques):
+                if not _ocupado(personas[b_idx], ocupado_semana, d1, d2):
+                    continue
+                for j in range(len(personas)):
+                    if j == b_idx:
+                        continue
+                    dj1, _, dj2, _ = bloques[j]
+                    if (not _ocupado(personas[j], ocupado_semana, d1, d2)
+                            and not _ocupado(personas[b_idx], ocupado_semana, dj1, dj2)):
+                        personas[b_idx], personas[j] = personas[j], personas[b_idx]
+                        break
+
+            row = {"Semana": f"{f_ini.strftime('%d/%m')} -\n{f_fin.strftime('%d/%m')}"}
+            for b_idx, (d1, t1, d2, t2) in enumerate(bloques):
+                persona = personas[b_idx]
+                row[d1] = f"{t1} ({persona})"
+                row[d2] = f"{t2} ({persona})"
             rows.append(row)
 
         return pd.DataFrame(rows)
@@ -336,13 +497,18 @@ class AppTurnosNativa:
 
             for sheet_name in ['Zonas Comunes', 'Zonas de Juan']:
                 ws = workbook[sheet_name]
+                ws.freeze_panes = "B2"
 
                 for col_idx in range(1, ws.max_column + 1):
                     ws.column_dimensions[get_column_letter(col_idx)].width = 20
 
-                for row_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=ws.max_row,
-                                                            min_col=1, max_col=ws.max_column)):
-                    ws.row_dimensions[row[0].row].height = 45
+                for row_idx, row in enumerate(ws.iter_rows()):
+                    # Alto según la celda con más líneas apiladas de la fila.
+                    max_lineas = max(
+                        str(cell.value).count("\n") + 1 if cell.value else 1
+                        for cell in row
+                    )
+                    ws.row_dimensions[row[0].row].height = max(45, 22 * max_lineas + 8)
 
                     for cell in row:
                         cell.alignment = align_center
@@ -369,12 +535,7 @@ class AppTurnosNativa:
             messagebox.showerror("Error", "La fecha de fin debe ser posterior a la de inicio.")
             return
 
-        curr = inicio - timedelta(days=inicio.weekday())
-
-        semanas = []
-        while curr <= fin:
-            semanas.append((curr, curr + timedelta(days=6)))
-            curr += timedelta(days=7)
+        semanas = self._calcular_semanas(inicio, fin)
 
         nombre_archivo_sugerido = (
             f"Turnos limpieza {inicio.strftime('%d-%m-%Y')} a {fin.strftime('%d-%m-%Y')}.xlsx"
@@ -394,8 +555,8 @@ class AppTurnosNativa:
         self.root.update()
 
         try:
-            df_c = self.generar_comunes(semanas)
-            df_j = self.generar_juan(semanas)
+            df_j, ocupados_juan = self.generar_juan(semanas)
+            df_c = self.generar_comunes(semanas, ocupados_juan)
             self.aplicar_estilos_excel(ruta, df_c, df_j)
 
             if messagebox.askyesno("Listo", "El Excel se ha generado correctamente.\n¿Deseas abrirlo ahora?"):
@@ -407,6 +568,7 @@ class AppTurnosNativa:
                     subprocess.call(["xdg-open", ruta])
 
         except Exception as e:
+            traceback.print_exc()
             messagebox.showerror("Error", f"No se pudo guardar: {e}")
         finally:
             self.btn.config(state="normal", text="Generar y Guardar Excel")

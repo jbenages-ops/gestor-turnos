@@ -6,3 +6,6 @@ dist/
 *.spec.bak
 .DS_Store
 *.xlsx
+.pytest_cache/
+icon_preview.png
+.venv/
