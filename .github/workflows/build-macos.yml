@@ -1,0 +1,53 @@
+name: Build macOS app
+
+on:
+  push:
+    branches: [claude/progress-check-dxc3e2, main]
+    paths:
+      - 'Desktop/Proyectos/gestion/**'
+      - '.github/workflows/build-macos.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest   # Apple Silicon (M1 o posterior)
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: Desktop/Proyectos/gestion
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Tests
+        run: python -m pytest tests/ -q
+
+      - name: Compilar la app
+        run: pyinstaller --noconfirm "Gestor Turnos.spec"
+
+      - name: Comprimir preservando permisos y symlinks
+        run: ditto -c -k --keepParent "dist/Gestor Turnos.app" "Gestor.Turnos.macOS.zip"
+
+      - name: Publicar Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.1.0
+          name: Gestor Turnos 1.1.0 (macOS)
+          files: Desktop/Proyectos/gestion/Gestor.Turnos.macOS.zip
+          body: |
+            App compilada para macOS (Apple Silicon: cualquier Mac de 2020 en adelante).
+
+            **Instalación:**
+            1. Descarga `Gestor.Turnos.macOS.zip` y descomprímelo (doble clic).
+            2. Arrastra **Gestor Turnos.app** a la carpeta *Aplicaciones*.
+            3. Para el acceso directo: arrastra la app al Escritorio manteniendo pulsadas **⌘ + ⌥** (crea un alias).
+            4. La primera vez: **clic derecho → Abrir** (aviso de desarrollador no identificado).
