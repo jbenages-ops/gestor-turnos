@@ -154,21 +154,26 @@ def parse_xml(path):
     }
 
 
-def guess_grupo2(alcance):
-    """Deduce la opción de trámite (radio Grupo2) a partir de AlcanceInformacionXML.
-    Es sólo una sugerencia: el usuario debe confirmarla en el formulario."""
+def guess_tramite(alcance):
+    """Deduce qué casilla de trámite marcar a partir de AlcanceInformacionXML.
+    Devuelve una de las claves de pdf_filler.CAMPOS_TRAMITE. Es sólo una
+    sugerencia: el usuario debe confirmarla en el formulario."""
     a = (alcance or "").lower()
     if "proyecto" in a:
         if "modific" in a:
-            return "1"
+            return "modificacion"
         if "anul" in a:
-            return "2"
-        return "0"
-    if "anul" in a:
-        return "5"
+            return "anul_proyecto"
+        return "proyecto"
+    if "modific" in a:
+        return "modificacion"
     if "renov" in a or "actualiz" in a:
-        return "4"
-    return "3"  # certificado de edificio terminado: caso más habitual
+        return "renovacion"
+    if "anul" in a:
+        return "anul_edificio"
+    if "termin" in a or "obra nueva" in a or ("nuevo" in a and "exist" not in a):
+        return "obra_terminada"
+    return "existente"  # certificado de edificio existente: caso más habitual
 
 
 _TIPOS_VIA = {
