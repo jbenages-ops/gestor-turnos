@@ -1,61 +1,58 @@
-"""Relleno del formulario PDF 'HOJA ENCARGO CyL.pdf' a partir de un diccionario
-de valores (nombre de campo AcroForm -> texto)."""
+"""Relleno del formulario PDF 'MODELO REPRESENTACION CyL.pdf' (Modelo de
+representación voluntaria, Decreto 5/2026) a partir de un diccionario de
+valores (nombre de campo AcroForm -> texto)."""
 import pypdf
-from pypdf.generic import BooleanObject, NameObject, TextStringObject
+from pypdf.generic import BooleanObject, NameObject
 
-# Todos los campos de texto/choice del formulario que la app puede rellenar.
-# Los que no se indiquen se dejan en blanco (evita arrastrar valores de un
-# rellenado anterior si se reutiliza la misma plantilla).
+# Todos los campos de texto del formulario que la app puede rellenar. Los que
+# no se indiquen se dejan en blanco (evita arrastrar valores de un rellenado
+# anterior si se reutiliza la misma plantilla). Las claves son los nombres
+# reales de los campos AcroForm, aunque algunos sean poco descriptivos.
 CAMPOS_TEXTO = [
-    "nombre técnico", "NIF 1", "domiciliado en", "razón social",
-    "Nombre y apellidos", "con NIF n_2", "domicilio", "nombre vía",
-    "Razón social", "con NIF n_3", "domicilio 2", "representante legal", "con NIF n_4",
-    "VÍA", "nkm", "bloque", "planta", "puerta",
-    "localidad", "provincia", "escalera", "postal",
-    "Fdo_2", "Fdo",
+    # De una parte: propietaria/promotora — persona física
+    "Nombre y apellidos", "con NIF n", "dirección",
+    # De una parte: propietaria/promotora — otros casos (empresa)
+    "Razón social", "con NIF n_2",
+    "representada legalmente por 1 se deberá acreditar",  # domicilio de la empresa
+    "dicha representación",                                # representante legal
+    "con NIF n_3",                                         # NIF del representante legal
+    # De otra parte: persona representante (el técnico)
+    "De otra parte la persona representante cuyo nombre y apellidos son",
+    "con NIF n_4", "domiciliada en", "razón social", "con NIF n_5",
+    # Inmueble
+    "tipo de vía", "nombre de la vía", "nkm", "bloque", "escalera",
+    "planta", "puerta", "localidad", "provincia", "código postal",
+    "uso del edificio 2",
+    # Lugar, fecha y firmas
+    "ciudad", "día", "mes", "año", "Fdo", "Fdo_2",
 ]
 
-CAMPOS_CHOICE = ["uso del edificio 2", "promotor/prop", "día", "mes", "AÑO"]
-
-
-def _separar_nombre_via(writer):
-    """En la plantilla, el campo 'domicilio' tiene dos widgets: el 'domiciliado
-    en' del cliente y el 'nombre de la vía' del inmueble, de modo que ambos
-    muestran siempre el mismo texto. Convierte el widget inferior (nombre de la
-    vía) en un campo independiente llamado 'nombre vía' para poder rellenarlos
-    por separado."""
-    fields = writer._root_object["/AcroForm"]["/Fields"]
-    for f in fields:
-        campo = f.get_object()
-        if campo.get("/T") != "domicilio":
-            continue
-        kids = campo.get("/Kids")
-        if not kids or len(kids) < 2:
-            return  # plantilla sin el widget duplicado: nada que separar
-        # El widget del "nombre de la vía" es el más bajo en la página
-        kid_via = min(kids, key=lambda k: float(k.get_object()["/Rect"][1]))
-        widget = kid_via.get_object()
-        widget[NameObject("/T")] = TextStringObject("nombre vía")
-        widget[NameObject("/FT")] = NameObject("/Tx")
-        del widget["/Parent"]
-        kids.remove(kid_via)
-        fields.append(kid_via)
-        return
+# Trámite: casillas de verificación (antes eran opciones de un radio). La clave
+# lógica -> nombre del campo AcroForm de la casilla correspondiente.
+CAMPOS_TRAMITE = {
+    "existente":      "Certificado de eficiencia energética de edificio existente",
+    "proyecto":       "Certificado de eficiencia energética de proyecto",
+    "obra_terminada": "Certificado de eficiencia energética de obra terminada",
+    "modificacion":   "Modificación de certificado de eficiencia energética inscrito",
+    "renovacion":     "Renovación  actualización de certificado de eficiencia energética de edificio",
+    "anul_proyecto":  "Anulación de certificado de eficiencia energética de proyecto",
+    "anul_edificio":  "Anulación de certificado de eficiencia energética de edificio",
+}
 
 
 def fill_pdf(template_path, values, output_path):
-    """values: dict con claves de CAMPOS_TEXTO/CAMPOS_CHOICE, más opcionalmente
-    'Grupo2' con el número de opción ('0'..'5')."""
+    """values: dict con claves de CAMPOS_TEXTO, más opcionalmente 'tramites'
+    con un iterable de claves de CAMPOS_TRAMITE ('existente', 'proyecto', ...)
+    para marcar esas casillas."""
     writer = pypdf.PdfWriter(clone_from=template_path)
-    _separar_nombre_via(writer)
 
     campos = {}
-    for name in CAMPOS_TEXTO + CAMPOS_CHOICE:
+    for name in CAMPOS_TEXTO:
         campos[name] = values.get(name, "") or ""
 
-    grupo2 = values.get("Grupo2")
-    if grupo2 is not None and grupo2 != "":
-        campos["Grupo2"] = f"/{grupo2}" if not str(grupo2).startswith("/") else grupo2
+    seleccionados = set(values.get("tramites") or [])
+    for clave, field_name in CAMPOS_TRAMITE.items():
+        campos[field_name] = NameObject("/On") if clave in seleccionados else NameObject("/Off")
 
     for page in writer.pages:
         writer.update_page_form_field_values(page, campos, auto_regenerate=False)
