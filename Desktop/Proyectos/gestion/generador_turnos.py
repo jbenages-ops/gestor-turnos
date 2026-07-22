@@ -37,19 +37,21 @@ COLOR_ROW_EVN   = "DCD3E1"
 #  (único sitio a editar si cambia el personal o su disponibilidad)       #
 # ---------------------------------------------------------------------- #
 
-DIAS_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+# Solo se limpia de lunes a viernes (no hay limpieza en sábado, domingo
+# ni en los turnos de noche de los AP).
+DIAS_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]
 
-# Zonas de Juan — las limpian los AP, cada uno solo en los días que trabaja.
-# La disponibilidad sale del cuadro de turnos de trabajo de los AP.
+# Zonas de Juan — las limpian los AP, cada uno solo en los días que trabaja
+# (turnos de día de lunes a viernes; los turnos de noche no limpian).
 ESTANCIAS_JUAN = ["Hab. Juan", "Hab. AP", "Baño Juan"]
 STAFF_JUAN = ["Dora", "Eva", "Lina", "Miguel", "Sandra", "Valentina"]
 DIAS_DISPONIBLES = {
-    "Dora":      ["Lunes", "Sábado", "Domingo"],
-    "Eva":       ["Miércoles", "Jueves", "Viernes", "Sábado"],
+    "Dora":      ["Lunes"],
+    "Eva":       ["Miércoles", "Jueves", "Viernes"],
     "Lina":      ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
-    "Miguel":    ["Lunes", "Martes", "Domingo"],
-    "Sandra":    ["Martes", "Sábado", "Domingo"],
-    "Valentina": ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+    "Miguel":    ["Lunes", "Martes"],
+    "Sandra":    ["Martes"],
+    "Valentina": ["Martes", "Miércoles", "Jueves", "Viernes"],
 }
 # Tareas comunes dentro de Zonas de Juan, rotando en ciclos de 3 semanas.
 TAREAS_COMUNES_JUAN = {
@@ -60,12 +62,12 @@ TAREAS_COMUNES_JUAN = {
 
 # Zonas Comunes
 STAFF_COMUNES = ["Lina", "Angie", "Juan"]
-# Cada bloque es (día 1, tarea 1, día 2, tarea 2): la persona que cubre el
-# bloque hace ambas tareas, en esos dos días fijos.
+# Cada bloque es una lista de (día, tarea): la persona que cubre el bloque
+# hace todas esas tareas, en esos días fijos (solo de lunes a viernes).
 BLOQUES_COMUNES = [
-    ("Lunes",     "Salón",   "Martes",  "Cocina"),
-    ("Miércoles", "Entrada", "Jueves",  "Salón"),
-    ("Viernes",   "Cocina",  "Sábado",  "Entrada"),
+    [("Lunes",     "Salón"),   ("Martes",  "Cocina")],
+    [("Miércoles", "Entrada"), ("Jueves",  "Salón")],
+    [("Viernes",   "Cocina")],
 ]
 
 
@@ -445,8 +447,11 @@ class AppTurnosNativa:
         bloques = BLOQUES_COMUNES
         ocupados_juan = ocupados_juan or [{}] * len(semanas)
 
-        def _ocupado(persona, ocupado_semana, d1, d2):
-            return persona in ocupado_semana.get(d1, ()) or persona in ocupado_semana.get(d2, ())
+        def _dias(bloque):
+            return [dia for dia, _ in bloque]
+
+        def _ocupado(persona, ocupado_semana, bloque):
+            return any(persona in ocupado_semana.get(dia, ()) for dia in _dias(bloque))
 
         rows = []
         n_staff = len(staff)
@@ -457,24 +462,23 @@ class AppTurnosNativa:
             # Si a alguien ya le toca una tarea de "Zonas de Juan" un día de
             # su bloque (p.ej. Lina, que está en ambos equipos), se
             # intercambia su bloque con el de otra persona libre esos días.
-            for b_idx, (d1, _, d2, _) in enumerate(bloques):
-                if not _ocupado(personas[b_idx], ocupado_semana, d1, d2):
+            for b_idx, bloque in enumerate(bloques):
+                if not _ocupado(personas[b_idx], ocupado_semana, bloque):
                     continue
                 for j in range(len(personas)):
                     if j == b_idx:
                         continue
-                    dj1, _, dj2, _ = bloques[j]
-                    if (not _ocupado(personas[j], ocupado_semana, d1, d2)
-                            and not _ocupado(personas[b_idx], ocupado_semana, dj1, dj2)):
+                    if (not _ocupado(personas[j], ocupado_semana, bloque)
+                            and not _ocupado(personas[b_idx], ocupado_semana, bloques[j])):
                         personas[b_idx], personas[j] = personas[j], personas[b_idx]
                         break
 
             row = {"Semana": f"{f_ini.strftime('%d/%m')} -\n{f_fin.strftime('%d/%m')}"}
             row.update({d: "-" for d in DIAS_SEMANA})
-            for b_idx, (d1, t1, d2, t2) in enumerate(bloques):
+            for b_idx, bloque in enumerate(bloques):
                 persona = personas[b_idx]
-                row[d1] = f"{t1} ({persona})"
-                row[d2] = f"{t2} ({persona})"
+                for dia, tarea in bloque:
+                    row[dia] = f"{tarea} ({persona})"
             rows.append(row)
 
         return pd.DataFrame(rows)

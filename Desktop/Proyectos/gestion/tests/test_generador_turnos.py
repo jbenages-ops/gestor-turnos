@@ -99,7 +99,7 @@ def test_juan_ocupados_coincide_con_la_tabla(app):
 
 def test_comunes_cubre_los_dias_de_sus_bloques(app):
     df = app.generar_comunes(_semanas(9))
-    dias_cubiertos = {d for bloque in gt.BLOQUES_COMUNES for d in (bloque[0], bloque[2])}
+    dias_cubiertos = {dia for bloque in gt.BLOQUES_COMUNES for dia, _ in bloque}
     for dia in DIAS:
         assert dia in df.columns
         if dia in dias_cubiertos:
