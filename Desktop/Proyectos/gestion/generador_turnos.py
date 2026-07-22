@@ -37,17 +37,19 @@ COLOR_ROW_EVN   = "DCD3E1"
 #  (único sitio a editar si cambia el personal o su disponibilidad)       #
 # ---------------------------------------------------------------------- #
 
-DIAS_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
+DIAS_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
 
-# Zonas de Juan
+# Zonas de Juan — las limpian los AP, cada uno solo en los días que trabaja.
+# La disponibilidad sale del cuadro de turnos de trabajo de los AP.
 ESTANCIAS_JUAN = ["Hab. Juan", "Hab. AP", "Baño Juan"]
-STAFF_JUAN = ["Lina", "Eva", "Guillem", "Valentina", "Miguel"]
+STAFF_JUAN = ["Dora", "Eva", "Lina", "Miguel", "Sandra", "Valentina"]
 DIAS_DISPONIBLES = {
-    "Lina":      ["Lunes"],
-    "Eva":       ["Miércoles", "Jueves", "Viernes"],
-    "Valentina": ["Martes", "Miércoles", "Jueves", "Viernes"],
-    "Miguel":    ["Lunes", "Martes"],
-    "Guillem":   ["Sábado"],
+    "Dora":      ["Lunes", "Sábado", "Domingo"],
+    "Eva":       ["Miércoles", "Jueves", "Viernes", "Sábado"],
+    "Lina":      ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+    "Miguel":    ["Lunes", "Martes", "Domingo"],
+    "Sandra":    ["Martes", "Sábado", "Domingo"],
+    "Valentina": ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
 }
 # Tareas comunes dentro de Zonas de Juan, rotando en ciclos de 3 semanas.
 TAREAS_COMUNES_JUAN = {
@@ -468,6 +470,7 @@ class AppTurnosNativa:
                         break
 
             row = {"Semana": f"{f_ini.strftime('%d/%m')} -\n{f_fin.strftime('%d/%m')}"}
+            row.update({d: "-" for d in DIAS_SEMANA})
             for b_idx, (d1, t1, d2, t2) in enumerate(bloques):
                 persona = personas[b_idx]
                 row[d1] = f"{t1} ({persona})"
