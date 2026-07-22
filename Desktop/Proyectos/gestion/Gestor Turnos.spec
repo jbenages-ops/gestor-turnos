@@ -69,8 +69,8 @@ app = BUNDLE(
     info_plist={
         'CFBundleName':              'Gestor Turnos',
         'CFBundleDisplayName':       'Gestor Turnos',
-        'CFBundleShortVersionString': '1.0.0',
-        'CFBundleVersion':           '1.0.0',
+        'CFBundleShortVersionString': '1.2.0',
+        'CFBundleVersion':           '1.2.0',
         'NSHighResolutionCapable':   True,
         'LSUIElement':               False,
     },
