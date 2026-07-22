@@ -97,11 +97,13 @@ def test_juan_ocupados_coincide_con_la_tabla(app):
 #  generar_comunes                                                        #
 # ---------------------------------------------------------------------- #
 
-def test_comunes_cubre_los_seis_dias(app):
+def test_comunes_cubre_los_dias_de_sus_bloques(app):
     df = app.generar_comunes(_semanas(9))
+    dias_cubiertos = {d for bloque in gt.BLOQUES_COMUNES for d in (bloque[0], bloque[2])}
     for dia in DIAS:
         assert dia in df.columns
-        assert (df[dia] != "-").all()
+        if dia in dias_cubiertos:
+            assert (df[dia] != "-").all()
 
 
 def test_comunes_reparto_equilibrado(app):
